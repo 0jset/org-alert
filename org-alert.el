@@ -156,11 +156,10 @@ text-properties stripped, along with the cutoff to apply"
   "Check if TIME is less than CUTOFF (in minutes) from NOW. If
 `org-alert-notify-after-event-cutoff` is set, also check that NOW
 is less than `org-alert-notify-after-event-cutoff` past TIME."
-  (let* ((time (mapcar #'string-to-number (split-string time ":")))
-         (now (or now (decode-time (current-time))))
-         (now (org-alert--to-minute (decoded-time-hour now) (decoded-time-minute now)))
-         (then (org-alert--to-minute (car time) (cadr time)))
-         (time-until (- then now)))
+
+  (let* ((then (ts-parse-org time))
+         (now (or now (ts-now)))
+         (time-until (/ (ts-difference then now) 60)))
     (if org-alert-notify-after-event-cutoff
         (and
          (<= time-until cutoff)
@@ -168,12 +167,16 @@ is less than `org-alert-notify-after-event-cutoff` past TIME."
          (> time-until (- org-alert-notify-after-event-cutoff)))
       (<= time-until cutoff))))
 
+
+;; NOTE org-ql doesn't tell which timestamp is matched - so i can't show different timestamp
+;; for different events
+;; PUSH add functionality to org-ql
 (defun org-alert--parse-entry ()
   "Parse an entry from the org agenda and return a list of the
 heading, the scheduled/deadline time, and the cutoff to apply"
   (let ((head (org-alert--strip-text-properties (org-get-heading t t t t))))
     (cl-destructuring-bind (body cutoff) (org-alert--grab-subtree)
-      (if (string-match org-alert-time-match-string body)
+      (if (string-match (org-re-timestamp 'active) body)
           (list head (match-string 1 body) cutoff)
         nil))))
 
@@ -236,7 +239,8 @@ next `org-alert-notify-cutoff' minutes."
                    (or
                     ;; NOTE planning without time won't match deadline without specified time
                     ;; like with only date
-                    (planning 3)
+                    (deadline auto)
+                    (scheduled :to ,(ts-now))
                     (ts-active :with-time t
                                :from ,(ts-now)
                                :to ,(ts-adjust 'hour 10 (ts-now)))
