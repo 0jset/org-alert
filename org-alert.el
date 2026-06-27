@@ -93,40 +93,44 @@ to allow differentiation from other uses of alert"
 (defcustom org-alert-timers
   `((:timer (t 300)
      :doc "check for timestamp-events that are going to be very soon"
-     :alert (:where (and (not (done))
-                         (not (scheduled))
-                         (ts-active :with-time t
-                                    :from ,(ts-now)
-                                    :to ,(ts-adjust 'hour 1 (ts-now))))))
+     :alert ,(lambda ()
+               `(:where (and (not (done))
+                             (not (scheduled))
+                             (ts-active :with-time t
+                                        :from ,(ts-now)
+                                        :to ,(ts-adjust 'hour 1 (ts-now)))))))
     (:timer (t ,(* 30 60))
      :doc "check for timestamp-events that are today without time, or with time and later"
-     :alert (:where (and (not (done))
-                         (not (scheduled))
-                         (ts-active :on today)
-                         (or (ts-active :with-time nil)
-                             (not (ts-active :with-time t :to ,(ts-now)))))))
-    (:timer (t ,(* 60 60))
+     :alert ,(lambda ()
+               `(:where (and (not (done))
+                             (not (scheduled))
+                             (ts-active :on today)
+                             (or (ts-active :with-time nil)
+                                 (not (ts-active :with-time t :to ,(ts-now))))))))
+    (:timer (t ,(* 60 60 2))
      :doc "check for all events that are in near future or that need to be done"
-     :alert (:where
-             (and (not (done))
-                  (cond
-                   ((deadline) (deadline auto))
-                   ((scheduled) (scheduled :to ,(ts-now))) ;; if task was scheduled before now - then we should get an alert
-                   ((ts
-                     :from ,(ts-now)
-                     :to ,(ts-update
-                           (make-ts :hour 0 :minute 0 :second 0
-                                    :day (+ 5 (ts-d (ts-now)))
-                                    :month (ts-m (ts-now))
-                                    :year (ts-Y (ts-now)))))
-                    (not (ts-inactive))))
-                  ))))
+     :alert ,(lambda ()
+               `(:where
+                 (and (not (done))
+                      (cond
+                       ((deadline) (deadline auto))
+                       ((scheduled) (scheduled :to ,(ts-now))) ;; if task was scheduled before now - then we should get an alert
+                       ((ts
+                         :from ,(ts-now)
+                         :to ,(ts-update
+                               (make-ts :hour 0 :minute 0 :second 0
+                                        :day (+ 5 (ts-d (ts-now)))
+                                        :month (ts-m (ts-now))
+                                        :year (ts-Y (ts-now)))))
+                        (not (ts-inactive))))
+                      )))))
   "Timers and alerts to create.
 use this to just get headlines:
 :select (lambda (&rest args) (substring-no-properties (apply #'org-get-heading args)))
 
 NOTE:
 - (planning) without time won't match deadline without specified time (only date).
+- each alert should be a function because it can have something that changes over time inside like (ts-now)
 - BUG: scheduled timestamp can be active but (not (ts-inactive)) filters it out.
 - BUG: (cond ((ts-active))) doesn't work
 - PUSH: org-ql doesn't match only 1 timestamp in entry - add functionality to org-ql
@@ -225,13 +229,13 @@ heading, the scheduled/deadline time, and the cutoff to apply"
                    '(org-agenda-skip-entry-if 'todo
                      org-done-keywords-for-agenda)))
 
-(defun org-alert-check--in-list (plist)
+(defun org-alert-check--in-list (get-plist)
   "Perform check for PLIST."
   (let* ((query (map-merge 'plist
                            (list :select #'org-alert--dispatch
                                  :from (org-agenda-files)
                                  :order-by '(date priority))
-                           plist))
+                           (funcall get-plist)))
          (org-ql-cache (make-hash-table)))
     (apply #'org-ql-query query)))
 
