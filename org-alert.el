@@ -47,14 +47,12 @@
 
 ;; TODO look for a property of the agenda entry as suggested in
 ;; https://github.com/spegoraro/org-alert/issues/20
-(defcustom org-alert-notify-cutoff 10
-  "Default time in minutes before a deadline a notification should be sent."
-  :group 'org-alert
-  :type 'integer)
-
-(defcustom org-alert-notify-after-event-cutoff nil
-  "Time in minutes after a deadline to stop sending notifications.
-If nil, never stop sending notifications."
+(defcustom org-alert-notify-cutoff nil
+  "Default time in minutes before a deadline a notification should be sent.
+- nil means just use timers.
+- non-nil means check each headline and use `alert'
+  if it's time < now + `org-alert-notify-cutoff'.
+setting it will break SCHEDULED handling."
   :group 'org-alert
   :type '(choice integer (const nil)))
 
@@ -62,20 +60,6 @@ If nil, never stop sending notifications."
   "Title to be sent with notify-send."
   :group 'org-alert
   :type 'string)
-
-(defcustom org-alert-match-string
-  "SCHEDULED>=\"<today>\"+SCHEDULED<\"<tomorrow>\"|DEADLINE>=\"<today>\"+DEADLINE<\"<tomorrow>\""
-  "property/todo/tags match string to be passed to `org-map-entries'."
-  :group 'org-alert
-  :type '(choice (regexp :tag "Match Regexp")
-	  (const :tag "Match All" nil)))
-
-(defcustom org-alert-time-match-string
-  "<.*\\([0-9]\\{2\\}:[0-9]\\{2\\}\\).*>"
-  "regex to find times in an org subtree. The first capture group
-is used to extract the time"
-  :group 'org-alert
-  :type 'regexp)
 
 (defcustom org-alert-cutoff-prop
   "REMINDERN"
@@ -195,8 +179,12 @@ text-properties stripped, along with the cutoff to apply"
      prop)))
 
 (defun org-alert--parse-entry ()
-  "Parse an entry from the org agenda and return a list of the
-heading, the scheduled/deadline time, and the cutoff to apply"
+  "Parse an entry from the org agenda.
+Returns a list of:
+1. category
+2. heading
+3. timestamp with scheduled/deadline if exist.
+4. cutoff to apply"
   (let* ((category (org-entry-get nil "CATEGORY" 't))
          (heading (org-get-heading t t t t))
          (head (org-alert--strip-text-properties heading))
@@ -214,6 +202,12 @@ heading, the scheduled/deadline time, and the cutoff to apply"
               (list head (match-string 1 body) cutoff))))))
     (cons category entry)))
 
+(defun org-alert--is-time-ok (time cutoff)
+  "Check if TIME is less than CUTOFF (in minutes) from now."
+  (let* ((time (ts-parse-org time))
+         (diff (/ (ts-diff time (ts-now)) 60)))
+    (and (> 0 diff) (< cutoff diff))))
+
 (defun org-alert--dispatch ()
   "Parse header at point and call `alert' on it if it has timestamp."
   (interactive) ;; for debugging
@@ -221,24 +215,12 @@ heading, the scheduled/deadline time, and the cutoff to apply"
     (when entry
       (cl-destructuring-bind (category head time cutoff) entry
         (if time
-            ;; (when (org-alert--check-time time cutoff)
-            (alert head
-                   :title (concat time " | " category)
-                   :category org-alert-notification-category)
+            (when (or (not cutoff) (org-alert--is-time-ok time cutoff))
+              (alert head
+                     :title (concat time " | " category)
+                     :category org-alert-notification-category))
           (alert head :title (concat org-alert-notification-title " | " category)
                  :category org-alert-notification-category))))))
-
-(defun org-alert--get-after-event-cutoff-time ()
-  "Get the time to how early we want to get the events."
-  (when org-alert-notify-after-event-cutoff
-    (ts-format "%F %T"
-	       (ts-adjust 'minute (- org-alert-notify-after-event-cutoff)
-			  (ts-now)))))
-
-(defun org-alert--map-entries (func)
-  (org-map-entries func org-alert-match-string 'agenda
-                   '(org-agenda-skip-entry-if 'todo
-                     org-done-keywords-for-agenda)))
 
 (defun org-alert-check--in-list (get-plist)
   "Call `org-ql-query' with arguments from GET-PLIST."
