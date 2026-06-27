@@ -184,29 +184,33 @@ text-properties stripped, along with the cutoff to apply"
 (defun org-alert--parse-entry ()
   "Parse an entry from the org agenda and return a list of the
 heading, the scheduled/deadline time, and the cutoff to apply"
-  (let* ((heading (org-get-heading t t t t))
-         (head (org-alert--strip-text-properties heading)))
-    (cl-destructuring-bind (body cutoff) (org-alert--grab-subtree)
-      (cond
-       ((string-match (org-re-timestamp 'active) head)
-        (list (replace-match "" nil nil head) (match-string 1 head) cutoff))
-       ;; NOTE: we choose deadline if deadline and scheduled are together in an entry
-       ((or (string-match (org-re-timestamp 'deadline) body)
-            (string-match (org-re-timestamp 'scheduled) body))
-        (list head (match-string 0 body) cutoff))
-       ((string-match (org-re-timestamp 'active) body)
-        (list head (match-string 1 body) cutoff))))))
+  (let* ((category (org-entry-get nil "CATEGORY" 't))
+         (heading (org-get-heading t t t t))
+         (head (org-alert--strip-text-properties heading))
+         (entry
+          (cl-destructuring-bind (body cutoff) (org-alert--grab-subtree)
+            (cond
+             ((string-match (org-re-timestamp 'active) head)
+              (list (replace-match "" nil nil head) ;; we want to have timestamp in other place
+                    (match-string 1 head) cutoff))
+             ;; NOTE: we choose deadline if deadline and scheduled are together in an entry
+             ((or (string-match (org-re-timestamp 'deadline) body)
+                  (string-match (org-re-timestamp 'scheduled) body))
+              (list head (match-string 0 body) cutoff))
+             ((string-match (org-re-timestamp 'active) body)
+              (list head (match-string 1 body) cutoff))))))
+    (cons category entry)))
 
 (defun org-alert--dispatch ()
   (let ((entry (org-alert--parse-entry)))
     (when entry
-      (cl-destructuring-bind (head time cutoff) entry
+      (cl-destructuring-bind (category head time cutoff) entry
         (if time
             ;; (when (org-alert--check-time time cutoff)
             (alert head
-                   :title time
+                   :title (concat time " | " category)
                    :category org-alert-notification-category)
-          (alert head :title org-alert-notification-title
+          (alert head :title (concat org-alert-notification-title " | " category)
                  :category org-alert-notification-category))))))
 
 (defun org-alert--get-after-event-cutoff-time ()
