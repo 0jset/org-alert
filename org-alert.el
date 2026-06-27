@@ -206,28 +206,6 @@ heading, the scheduled/deadline time, and the cutoff to apply"
 This will match org heading with active timestamp, from now, until the
 next `org-alert-notify-cutoff' minutes."
   (interactive)
-  ;; (let ((org-ql-cache (make-hash-table)))
-  ;;   (org-ql-select (org-agenda-files)
-  ;;     `(or (ts-active :with-time t
-  ;;       	      :from ,(org-alert--get-after-event-cutoff-time)
-  ;;       	      :to ,(ts-format "%F %T" (ts-adjust 'minute org-alert-notify-cutoff (ts-now))))
-  ;;          (and (property ,org-alert-cutoff-prop)
-  ;;       	(ts-active :with-time t
-  ;;       		   :from ,(org-alert--get-after-event-cutoff-time))))
-  ;;     :action #'org-alert--dispatch))
-
-  ;; (org-ql-query
-  ;;   :select #'org-alert--dispatch
-  ;;   ;; :select (lambda (&rest args) (substring-no-properties (apply #'org-get-heading args)))
-  ;;   :from (org-agenda-files)
-  ;;   :where `(and (not (done))
-  ;;                (or
-  ;;                 (planning 1)
-  ;;                 (ts-active :with-time nil
-  ;;                            :from today
-  ;;                            :to today)))
-  ;;   :order-by '(date)))
-
   (let ((org-ql-cache (make-hash-table)))
     (org-ql-query
       :select #'org-alert--dispatch
@@ -282,7 +260,7 @@ next `org-alert-notify-cutoff' minutes."
   "Cancel the running notification timer."
   (interactive)
   (dolist (timer timer-list)
-    (if (eq (elt timer 5) 'org-alert-check)
+    (if (or (eq (elt timer 5) 'org-alert-check-long) (eq (elt timer 5) 'org-alert-check))
         (cancel-timer timer))))
 
 (provide 'org-alert)
