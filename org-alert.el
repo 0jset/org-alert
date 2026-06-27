@@ -107,22 +107,29 @@ to allow differentiation from other uses of alert"
                              (not (ts-active :with-time t :to ,(ts-now)))))))
     (:timer (t ,(* 60 60))
      :doc "check for all events that are in near future or that need to be done"
-     :alert (:where (and (not (done))
-                         (or
-                          (deadline auto)
-                          (scheduled :to ,(ts-now))
-                          (ts-active
-                           :from ,(ts-now)
-                           :to ,(ts-update
-                                 (make-ts :hour 0 :minute 0 :second 0
-                                          :day (+ 5 (ts-d (ts-now)))
-                                          :month (ts-m (ts-now))
-                                          :year (ts-Y (ts-now))))))))))
+     :alert (:where
+             (and (not (done))
+                  (cond
+                   ((deadline) (deadline auto))
+                   ((scheduled) (scheduled :to ,(ts-now))) ;; if task was scheduled before now - then we should get an alert
+                   ((ts
+                     :from ,(ts-now)
+                     :to ,(ts-update
+                           (make-ts :hour 0 :minute 0 :second 0
+                                    :day (+ 5 (ts-d (ts-now)))
+                                    :month (ts-m (ts-now))
+                                    :year (ts-Y (ts-now)))))
+                    (not (ts-inactive))))
+                  ))))
   "Timers and alerts to create.
 use this to just get headlines:
 :select (lambda (&rest args) (substring-no-properties (apply #'org-get-heading args)))
 
-NOTE (planning) without time won't match deadline without specified time (only date).
+NOTE:
+- (planning) without time won't match deadline without specified time (only date).
+- BUG: scheduled timestamp can be active but (not (ts-inactive)) filters it out.
+- BUG: (cond ((ts-active))) doesn't work
+- PUSH: org-ql doesn't match only 1 timestamp in entry - add functionality to org-ql
 ")
 
 (defun org-alert--read-subtree ()
