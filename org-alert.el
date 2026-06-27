@@ -110,7 +110,7 @@ to allow differentiation from other uses of alert"
                                         :day (+ 5 (ts-d (ts-now)))
                                         :month (ts-m (ts-now))
                                         :year (ts-Y (ts-now)))))
-                        (not (ts-inactive))))
+                        ))
                       )))))
   "Timers and alerts to create.
 :timer - timer arguments
@@ -122,11 +122,14 @@ NOTE:
   (only date).
 - each alert should be a function because it can have something that
   changes over time inside like (ts-now)
-- BUG: scheduled timestamp can be active but (not (ts-inactive))
-  filters it out.
+- BUG: org-ql ts-inactive matches active timestamps (in <>) that are in the past.
+  it leads to:
+  - BUG: scheduled timestamp can be active but (not (ts-inactive))
+    filters it out.
+  which means i can't put it anywhere and headins with timestamps like [2025-01-01] will be alerted
 - BUG: (cond ((ts-active))) doesn't work
 - PUSH: org-ql doesn't match only 1 timestamp in entry - add functionality
-  to org-ql or use one of the forks with this functionality.
+  to org-ql or use one of the forks with this functionality
 ")
 
 (defun org-alert--read-subtree ()
