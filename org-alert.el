@@ -1,4 +1,4 @@
-;;; org-alert.el --- Notify org deadlines via notify-send
+;;; org-alert.el --- Notify org deadlines via notify-send -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2015 Stephen Pegoraro
 
