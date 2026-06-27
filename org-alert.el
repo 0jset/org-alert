@@ -176,9 +176,12 @@ is less than `org-alert-notify-after-event-cutoff` past TIME."
 heading, the scheduled/deadline time, and the cutoff to apply"
   (let ((head (org-alert--strip-text-properties (org-get-heading t t t t))))
     (cl-destructuring-bind (body cutoff) (org-alert--grab-subtree)
-      (if (string-match (org-re-timestamp 'active) body)
-          (list head (match-string 1 body) cutoff)
-        nil))))
+      (cond
+       ((string-match (org-re-timestamp 'active) head)
+        (list (replace-match "" nil nil head) (match-string 1 head) cutoff)
+        )
+       ((string-match (org-re-timestamp 'active) body)
+        (list head (match-string 1 body) cutoff))))))
 
 (defun org-alert--dispatch ()
   (let ((entry (org-alert--parse-entry)))
@@ -218,10 +221,12 @@ next `org-alert-notify-cutoff' minutes."
                    (or
                     ;; NOTE planning without time won't match deadline without specified time
                     ;; like with only date
-                    (planning 1)
                     (ts-active :with-time t
                                :from ,(ts-now)
-                               :to ,(ts-adjust 'hour 3 (ts-now)))))
+                               :to ,(ts-adjust 'hour 10 (ts-now)))
+                    (ts-active :with-time nil
+                               :on today)
+                    ))
       :order-by '(date)))
   t)
 
