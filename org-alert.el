@@ -75,7 +75,7 @@ to allow differentiation from other uses of alert"
   :type 'symbol)
 
 (defcustom org-alert-timers
-  `((:timer (t 300)
+  `((:timer (t ,(* 10 60))
      :doc "check for timestamp-events that are going to be very soon"
      :alert ,(lambda ()
                `(:where (and (not (done))
@@ -83,7 +83,7 @@ to allow differentiation from other uses of alert"
                              (ts-active :with-time t
                                         :from ,(ts-now)
                                         :to ,(ts-adjust 'hour 1 (ts-now)))))))
-    (:timer (t ,(* 30 60))
+    (:timer (t ,(* 60 60))
      :doc "check for timestamp-events that are today without time, or with time and later"
      :alert ,(lambda ()
                `(:where (and (not (done))
@@ -95,23 +95,36 @@ to allow differentiation from other uses of alert"
                                  ;; not events that already happen
                                  (not (ts-active :with-time t :to ,(ts-now))))))))
     (:timer (t ,(* 60 60 2))
-     :doc "check for all events that are in near future or that need to be done"
+     :doc "check for tasks that need to be done"
      :alert ,(lambda ()
                `(:where
                  (and (not (done))
                       (cond
-                       ((deadline) (deadline auto))
+                       ((deadline :to
+                                  ,(ts-update
+                                    (make-ts :hour 0 :minute 0 :second 0
+                                             :day (+ org-deadline-warning-days (ts-d (ts-now)))
+                                             :month (ts-m (ts-now))
+                                             :year (ts-Y (ts-now))))))
                        ;; if task was scheduled before now - then we should get an alert
-                       ((scheduled) (scheduled :to ,(ts-now)))
-                       ((ts
-                         :from ,(ts-now)
-                         :to ,(ts-update
-                               (make-ts :hour 0 :minute 0 :second 0
-                                        :day (+ 5 (ts-d (ts-now)))
-                                        :month (ts-m (ts-now))
-                                        :year (ts-Y (ts-now)))))
-                        ))
-                      )))))
+                       ((scheduled) (scheduled :to ,(ts-now))))
+                      ))))
+    (:timer (t ,(* 60 60 5))
+     :doc "check for all events that are in near future or that need to be done"
+     :alert ,(lambda ()
+               `(:where
+                 (and (not (done))
+                      (not (deadline))
+                      (not (scheduled))
+                      (ts
+                       :from ,(ts-now)
+                       :to ,(ts-update
+                             (make-ts :hour 0 :minute 0 :second 0
+                                      :day (+ 5 (ts-d (ts-now)))
+                                      :month (ts-m (ts-now))
+                                      :year (ts-Y (ts-now)))))
+                      ))))
+    )
   "Timers and alerts to create.
 :timer - timer arguments
 :doc - just for clarity what this alert does
@@ -126,10 +139,11 @@ NOTE:
   it leads to:
   - BUG: scheduled timestamp can be active but (not (ts-inactive))
     filters it out.
-  which means i can't put it anywhere and headins with timestamps like [2025-01-01] will be alerted
+  which means i can't put it anywhere and headings with timestamps like [2025-01-01] will be alerted
 - BUG: (cond ((ts-active))) doesn't work
 - PUSH: org-ql doesn't match only 1 timestamp in entry - add functionality
   to org-ql or use one of the forks with this functionality
+- 2026-03-21 BUG: (deadline auto) doesn't work properly - it affected events more than year away
 ")
 
 (defun org-alert--read-subtree ()
@@ -188,22 +202,22 @@ Returns a list of:
 2. heading
 3. timestamp with scheduled/deadline if exist.
 4. cutoff to apply"
-  (let* ((category (org-entry-get nil "CATEGORY" 't))
-         (heading (org-get-heading t t t t))
-         (head (org-alert--strip-text-properties heading))
-         (entry
-          (cl-destructuring-bind (body cutoff) (org-alert--grab-subtree)
-            (cond
-             ((string-match (org-re-timestamp 'active) head)
-              (list (replace-match "" nil nil head) ;; we want to have timestamp in other place
-                    (match-string 1 head) cutoff))
-             ;; NOTE: we choose deadline if deadline and scheduled are together in an entry
-             ((or (string-match (org-re-timestamp 'deadline) body)
-                  (string-match (org-re-timestamp 'scheduled) body))
-              (list head (match-string 0 body) cutoff))
-             ((string-match (org-re-timestamp 'active) body)
-              (list head (match-string 1 body) cutoff))))))
-    (cons category entry)))
+  (-let* ((category (org-entry-get nil "CATEGORY" 't))
+          (heading (org-get-heading t t t t))
+          (head (org-alert--strip-text-properties heading))
+          ((body cutoff) (org-alert--grab-subtree))
+          ((head timestamp)
+           (cond
+            ((string-match (org-re-timestamp 'active) head)
+             (list (replace-match "" nil nil head) ;; we want to have timestamp in other place
+                   (match-string 1 head)))
+            ;; NOTE: we choose deadline if deadline and scheduled are together in an entry
+            ((or (string-match (org-re-timestamp 'deadline) body)
+                 (string-match (org-re-timestamp 'scheduled) body))
+             (list head (match-string 0 body)))
+            ((string-match (org-re-timestamp 'active) body)
+             (list head (match-string 1 body))))))
+    (list category head timestamp cutoff)))
 
 (defun org-alert--is-time-ok (time cutoff)
   "Check if TIME is less than CUTOFF (in minutes) from now."
