@@ -76,6 +76,7 @@ to allow differentiation from other uses of alert"
 
 (defcustom org-alert-timers
   `((:timer (t ,(* 10 60))
+     :reload-buffers nil
      :doc "check for timestamp-events that are going to be very soon"
      :alert ,(lambda ()
                `(:where (and (not (done))
@@ -84,6 +85,7 @@ to allow differentiation from other uses of alert"
                                         :from ,(ts-now)
                                         :to ,(ts-adjust 'hour 1 (ts-now)))))))
     (:timer (t ,(* 60 60))
+     :reload-buffers t
      :doc "check for timestamp-events that are today without time, or with time and later"
      :alert ,(lambda ()
                `(:where (and (not (done))
@@ -95,6 +97,7 @@ to allow differentiation from other uses of alert"
                                  ;; not events that already happen
                                  (not (ts-active :with-time t :to ,(ts-now))))))))
     (:timer (t ,(* 60 60 2))
+     :reload-buffers t
      :doc "check for tasks that need to be done"
      :alert ,(lambda ()
                `(:where
@@ -110,6 +113,7 @@ to allow differentiation from other uses of alert"
                        ((scheduled) (scheduled :to ,(ts-now))))
                       ))))
     (:timer (t ,(* 60 60 5))
+     :reload-buffers t
      :doc "check for all events that are in near future or that need to be done"
      :alert ,(lambda ()
                `(:where
@@ -239,20 +243,30 @@ Returns a list of:
           (alert head :title (concat org-alert-notification-title " | " category)
                  :category org-alert-notification-category))))))
 
-(defun org-alert-check--in-list (get-plist)
+(defun org-alert-check--in-list (get-plist &optional reload-buffers)
   "Call `org-ql-query' with arguments from GET-PLIST."
   (let* ((query (map-merge 'plist
                            (list :select #'org-alert--dispatch
                                  :from (org-agenda-files)
                                  :order-by '(date priority))
                            (funcall get-plist)))
-         (org-ql-cache (make-hash-table)))
+         (org-ql-cache (make-hash-table))
+         (files-to-reload (plist-get query :from)))
+    (when reload-buffers
+      (cl-dolist (file files-to-reload)
+        (with-current-buffer
+            (buffer-name
+             (get-file-buffer file))
+          (revert-buffer 't 't 't))))
     (apply #'org-ql-query query)))
 
 (defun org-alert-check (num)
   "Call NUM timer alert from `org-alert-timers'."
   (interactive "nTimer function to call: ")
-  (org-alert-check--in-list (plist-get (nth num org-alert-timers) :alert)))
+  (let* ((timer (nth num org-alert-timers))
+         (timer-spec (plist-get timer :alert))
+         (reload-buffers (plist-get timer :reload-buffers)))
+    (org-alert-check--in-list timer-spec reload-buffers)))
 
 ;;;###autoload
 (defun org-alert-enable ()
@@ -262,8 +276,9 @@ Returns a list of:
   (cl-dolist (i (number-sequence 0 (1- (length org-alert-timers))))
     (let* ((timer-plist (nth i org-alert-timers))
            (timer-args (plist-get timer-plist :timer))
-           (alert (plist-get timer-plist :alert)))
-      (apply #'run-at-time (append timer-args (list #'org-alert-check--in-list alert))))))
+           (alert (plist-get timer-plist :alert))
+           (reload-buffers (plist-get timer-plist :reload-buffers)))
+      (apply #'run-at-time (append timer-args (list #'org-alert-check--in-list alert reload-buffers))))))
 
 (defun org-alert-disable ()
   "Cancel the running notification timer."
