@@ -148,38 +148,19 @@ text-properties stripped, along with the cutoff to apply"
                           (cdr (split-string text "\n"))))
      prop)))
 
-(defun org-alert--to-minute (hour minute)
-  "Convert HOUR and MINUTE to minutes"
-  (+ (* 60 hour) minute))
-
-(defun org-alert--check-time (time cutoff &optional now)
-  "Check if TIME is less than CUTOFF (in minutes) from NOW. If
-`org-alert-notify-after-event-cutoff` is set, also check that NOW
-is less than `org-alert-notify-after-event-cutoff` past TIME."
-
-  (let* ((then (ts-parse-org time))
-         (now (or now (ts-now)))
-         (time-until (/ (ts-difference then now) 60)))
-    (if org-alert-notify-after-event-cutoff
-        (and
-         (<= time-until cutoff)
-         ;; negative time-until past events
-         (> time-until (- org-alert-notify-after-event-cutoff)))
-      (<= time-until cutoff))))
-
-
-;; NOTE org-ql doesn't tell which timestamp is matched - so i can't show different timestamp
-;; for different events
-;; PUSH add functionality to org-ql
 (defun org-alert--parse-entry ()
   "Parse an entry from the org agenda and return a list of the
 heading, the scheduled/deadline time, and the cutoff to apply"
-  (let ((head (org-alert--strip-text-properties (org-get-heading t t t t))))
+  (let* ((heading (org-get-heading t t t t))
+         (head (org-alert--strip-text-properties heading)))
     (cl-destructuring-bind (body cutoff) (org-alert--grab-subtree)
       (cond
        ((string-match (org-re-timestamp 'active) head)
-        (list (replace-match "" nil nil head) (match-string 1 head) cutoff)
-        )
+        (list (replace-match "" nil nil head) (match-string 1 head) cutoff))
+       ;; NOTE: we choose deadline if deadline and scheduled are together in an entry
+       ((or (string-match (org-re-timestamp 'deadline) body)
+            (string-match (org-re-timestamp 'scheduled) body))
+        (list head (match-string 0 body) cutoff))
        ((string-match (org-re-timestamp 'active) body)
         (list head (match-string 1 body) cutoff))))))
 
@@ -188,10 +169,10 @@ heading, the scheduled/deadline time, and the cutoff to apply"
     (when entry
       (cl-destructuring-bind (head time cutoff) entry
         (if time
-            (when (org-alert--check-time time cutoff)
-              (alert (concat time ": " head)
-                     :title org-alert-notification-title
-                     :category org-alert-notification-category))
+            ;; (when (org-alert--check-time time cutoff)
+            (alert head
+                   :title time
+                   :category org-alert-notification-category)
           (alert head :title org-alert-notification-title
                  :category org-alert-notification-category))))))
 
@@ -207,6 +188,39 @@ heading, the scheduled/deadline time, and the cutoff to apply"
                    '(org-agenda-skip-entry-if 'todo
                      org-done-keywords-for-agenda)))
 
+
+(defvar org-alert-timer-filters
+  (list
+   (lambda ()
+     `(and (not (done))
+           (or
+            ;; NOTE planning without time won't match deadline without specified time
+            ;; like with only date
+            (ts-active :with-time t
+                       :from ,(ts-now)
+                       :to ,(ts-adjust 'hour 10 (ts-now)))
+            (ts-active :with-time nil
+                       :on today))
+           ;; (not (deadline))
+           ;; (not (scheduled ;; :to ,(ts-now)
+           ;;       ))
+           ))
+   (lambda ()
+     `(and (not (done))
+           (or
+            ;; NOTE planning without time won't match deadline without specified time
+            ;; like with only date
+            (deadline auto)
+            (scheduled :to ,(ts-now))
+            (ts-active :with-time t
+                       :from ,(ts-now)
+                       :to ,(ts-adjust 'hour 30 (ts-now)))
+            (ts-active :with-time nil
+                       :from ,(ts-now)
+                       :to ,(ts-adjust 'hour 30 (ts-now))))))
+   )
+  )
+
 (defun org-alert-check ()
   "Check for active, due deadlines and initiate notifications using `org-ql'.
 This will match org heading with active timestamp, from now, until the
@@ -214,7 +228,8 @@ next `org-alert-notify-cutoff' minutes."
   (interactive)
   (let ((org-ql-cache (make-hash-table)))
     (org-ql-query
-      :select #'org-alert--dispatch
+      :select
+      #'org-alert--dispatch
       ;; (lambda (&rest args) (substring-no-properties (apply #'org-get-heading args)))
       :from (org-agenda-files)
       :where `(and (not (done))
@@ -225,8 +240,11 @@ next `org-alert-notify-cutoff' minutes."
                                :from ,(ts-now)
                                :to ,(ts-adjust 'hour 10 (ts-now)))
                     (ts-active :with-time nil
-                               :on today)
-                    ))
+                               :on today))
+                   ;; (not (deadline))
+                   ;; (not (scheduled ;; :to ,(ts-now)
+                   ;;       ))
+                   )
       :order-by '(date)))
   t)
 
@@ -237,7 +255,8 @@ next `org-alert-notify-cutoff' minutes."
   (interactive)
   (let ((org-ql-cache (make-hash-table)))
     (org-ql-query
-      :select #'org-alert--dispatch
+      :select
+      #'org-alert--dispatch
       ;; (lambda (&rest args) (substring-no-properties (apply #'org-get-heading args)))
       :from (org-agenda-files)
       :where `(and (not (done))
@@ -248,10 +267,10 @@ next `org-alert-notify-cutoff' minutes."
                     (scheduled :to ,(ts-now))
                     (ts-active :with-time t
                                :from ,(ts-now)
-                               :to ,(ts-adjust 'hour 10 (ts-now)))
+                               :to ,(ts-adjust 'hour 30 (ts-now)))
                     (ts-active :with-time nil
                                :from ,(ts-now)
-                               :to ,(ts-adjust 'hour 10 (ts-now)))))
+                               :to ,(ts-adjust 'hour 30 (ts-now)))))
       :order-by '(date)))
   t)
 
