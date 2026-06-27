@@ -49,6 +49,11 @@
   :group 'org-alert
   :type 'integer)
 
+(defcustom org-alert-interval-long 300
+  "Interval in seconds to recheck and display deadlines."
+  :group 'org-alert
+  :type 'integer)
+
 ;; TODO look for a property of the agenda entry as suggested in
 ;; https://github.com/spegoraro/org-alert/issues/20
 (defcustom org-alert-notify-cutoff 10
@@ -72,7 +77,7 @@ If nil, never stop sending notifications."
   "property/todo/tags match string to be passed to `org-map-entries'."
   :group 'org-alert
   :type '(choice (regexp :tag "Match Regexp")
-				 (const :tag "Match All" nil)))
+	  (const :tag "Match All" nil)))
 
 (defcustom org-alert-time-match-string
   "<.*\\([0-9]\\{2\\}:[0-9]\\{2\\}\\).*>"
@@ -187,37 +192,91 @@ heading, the scheduled/deadline time, and the cutoff to apply"
 (defun org-alert--get-after-event-cutoff-time ()
   "Get the time to how early we want to get the events."
   (when org-alert-notify-after-event-cutoff
-	(ts-format "%F %T"
-			   (ts-adjust 'minute (- org-alert-notify-after-event-cutoff)
-						  (ts-now)))))
+    (ts-format "%F %T"
+	       (ts-adjust 'minute (- org-alert-notify-after-event-cutoff)
+			  (ts-now)))))
 
 (defun org-alert--map-entries (func)
   (org-map-entries func org-alert-match-string 'agenda
                    '(org-agenda-skip-entry-if 'todo
-                                              org-done-keywords-for-agenda)))
+                     org-done-keywords-for-agenda)))
 
 (defun org-alert-check ()
   "Check for active, due deadlines and initiate notifications using `org-ql'.
 This will match org heading with active timestamp, from now, until the
 next `org-alert-notify-cutoff' minutes."
   (interactive)
+  ;; (let ((org-ql-cache (make-hash-table)))
+  ;;   (org-ql-select (org-agenda-files)
+  ;;     `(or (ts-active :with-time t
+  ;;       	      :from ,(org-alert--get-after-event-cutoff-time)
+  ;;       	      :to ,(ts-format "%F %T" (ts-adjust 'minute org-alert-notify-cutoff (ts-now))))
+  ;;          (and (property ,org-alert-cutoff-prop)
+  ;;       	(ts-active :with-time t
+  ;;       		   :from ,(org-alert--get-after-event-cutoff-time))))
+  ;;     :action #'org-alert--dispatch))
+
+  ;; (org-ql-query
+  ;;   :select #'org-alert--dispatch
+  ;;   ;; :select (lambda (&rest args) (substring-no-properties (apply #'org-get-heading args)))
+  ;;   :from (org-agenda-files)
+  ;;   :where `(and (not (done))
+  ;;                (or
+  ;;                 (planning 1)
+  ;;                 (ts-active :with-time nil
+  ;;                            :from today
+  ;;                            :to today)))
+  ;;   :order-by '(date)))
+
   (let ((org-ql-cache (make-hash-table)))
-    (org-ql-select (org-agenda-files)
-	  `(or (ts-active :with-time t
-					  :from ,(org-alert--get-after-event-cutoff-time)
-					  :to ,(ts-format "%F %T" (ts-adjust 'minute org-alert-notify-cutoff (ts-now))))
-		   (and (property ,org-alert-cutoff-prop)
-			    (ts-active :with-time t
-						   :from ,(org-alert--get-after-event-cutoff-time))))
-	  :action #'org-alert--dispatch))
+    (org-ql-query
+      :select #'org-alert--dispatch
+      ;; (lambda (&rest args) (substring-no-properties (apply #'org-get-heading args)))
+      :from (org-agenda-files)
+      :where `(and (not (done))
+                   (or
+                    ;; NOTE planning without time won't match deadline without specified time
+                    ;; like with only date
+                    (planning 1)
+                    (ts-active :with-time t
+                               :from ,(ts-now)
+                               :to ,(ts-adjust 'hour 3 (ts-now)))))
+      :order-by '(date)))
   t)
+
+(defun org-alert-check-long ()
+  "Check for active, due deadlines and initiate notifications using `org-ql'.
+This will match org heading with active timestamp, from now, until the
+next `org-alert-notify-cutoff' minutes."
+  (interactive)
+  (let ((org-ql-cache (make-hash-table)))
+    (org-ql-query
+      :select #'org-alert--dispatch
+      ;; (lambda (&rest args) (substring-no-properties (apply #'org-get-heading args)))
+      :from (org-agenda-files)
+      :where `(and (not (done))
+                   (or
+                    ;; NOTE planning without time won't match deadline without specified time
+                    ;; like with only date
+                    (planning 3)
+                    (ts-active :with-time t
+                               :from ,(ts-now)
+                               :to ,(ts-adjust 'hour 10 (ts-now)))
+                    (ts-active :with-time nil
+                               :from ,(ts-now)
+                               :to ,(ts-adjust 'hour 10 (ts-now)))))
+      :order-by '(date)))
+  t)
+
 
 ;;;###autoload
 (defun org-alert-enable ()
   "Enable the notification timer.  Cancels existing timer if running."
   (interactive)
   (org-alert-disable)
-  (run-at-time t org-alert-interval 'org-alert-check))
+  (run-at-time t org-alert-interval 'org-alert-check)
+  (run-at-time t org-alert-interval-long 'org-alert-check-long)
+  )
 
 (defun org-alert-disable ()
   "Cancel the running notification timer."
