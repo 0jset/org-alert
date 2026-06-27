@@ -104,8 +104,11 @@ to allow differentiation from other uses of alert"
      :alert ,(lambda ()
                `(:where (and (not (done))
                              (not (scheduled))
+                             ;; events that will happen today
                              (ts-active :on today)
+                             ;; events that are happening all day
                              (or (ts-active :with-time nil)
+                                 ;; not events that already happen
                                  (not (ts-active :with-time t :to ,(ts-now))))))))
     (:timer (t ,(* 60 60 2))
      :doc "check for all events that are in near future or that need to be done"
@@ -114,7 +117,8 @@ to allow differentiation from other uses of alert"
                  (and (not (done))
                       (cond
                        ((deadline) (deadline auto))
-                       ((scheduled) (scheduled :to ,(ts-now))) ;; if task was scheduled before now - then we should get an alert
+                       ;; if task was scheduled before now - then we should get an alert
+                       ((scheduled) (scheduled :to ,(ts-now)))
                        ((ts
                          :from ,(ts-now)
                          :to ,(ts-update
@@ -125,20 +129,25 @@ to allow differentiation from other uses of alert"
                         (not (ts-inactive))))
                       )))))
   "Timers and alerts to create.
-use this to just get headlines:
-:select (lambda (&rest args) (substring-no-properties (apply #'org-get-heading args)))
+:timer - timer arguments
+:doc - just for clarity what this alert does
+:alert - function that returns arguments for org-ql-query
 
 NOTE:
-- (planning) without time won't match deadline without specified time (only date).
-- each alert should be a function because it can have something that changes over time inside like (ts-now)
-- BUG: scheduled timestamp can be active but (not (ts-inactive)) filters it out.
+- (planning) without time won't match deadline without specified time
+  (only date).
+- each alert should be a function because it can have something that
+  changes over time inside like (ts-now)
+- BUG: scheduled timestamp can be active but (not (ts-inactive))
+  filters it out.
 - BUG: (cond ((ts-active))) doesn't work
-- PUSH: org-ql doesn't match only 1 timestamp in entry - add functionality to org-ql
+- PUSH: org-ql doesn't match only 1 timestamp in entry - add functionality
+  to org-ql or use one of the forks with this functionality.
 ")
 
 (defun org-alert--read-subtree ()
-  "Return the current subtree as a string. Adapted from
-`org-copy-subtree` from org-mode."
+  "Return the current subtree as a string.
+Adapted from `org-copy-subtree` from `org-mode'."
   (org-preserve-local-variables
    (let (beg end folded (beg0 (point)))
      (org-back-to-heading t)
@@ -206,6 +215,8 @@ heading, the scheduled/deadline time, and the cutoff to apply"
     (cons category entry)))
 
 (defun org-alert--dispatch ()
+  "Parse header at point and call `alert' on it if it has timestamp."
+  (interactive) ;; for debugging
   (let ((entry (org-alert--parse-entry)))
     (when entry
       (cl-destructuring-bind (category head time cutoff) entry
@@ -230,7 +241,7 @@ heading, the scheduled/deadline time, and the cutoff to apply"
                      org-done-keywords-for-agenda)))
 
 (defun org-alert-check--in-list (get-plist)
-  "Perform check for PLIST."
+  "Call `org-ql-query' with arguments from GET-PLIST."
   (let* ((query (map-merge 'plist
                            (list :select #'org-alert--dispatch
                                  :from (org-agenda-files)
@@ -240,13 +251,13 @@ heading, the scheduled/deadline time, and the cutoff to apply"
     (apply #'org-ql-query query)))
 
 (defun org-alert-check (num)
-  "Call NUM timer alert function."
+  "Call NUM timer alert from `org-alert-timers'."
   (interactive "nTimer function to call: ")
   (org-alert-check--in-list (plist-get (nth num org-alert-timers) :alert)))
 
 ;;;###autoload
 (defun org-alert-enable ()
-  "Enable the notification timer.  Cancels existing timers if running."
+  "Enable the notification timer. Cancels existing timers if running."
   (interactive)
   (org-alert-disable)
   (cl-dolist (i (number-sequence 0 (1- (length org-alert-timers))))
