@@ -74,6 +74,22 @@ to allow differentiation from other uses of alert"
   :group 'org-alert
   :type 'symbol)
 
+(defcustom org-alert-time-notification-fn
+  (lambda (head time category)
+    (alert (concat head " | " category)
+           :title time
+           :category org-alert-notification-category))
+  "Function that is called when notification with time should be created."
+  :group 'org-alert)
+
+(defcustom org-alert-notification-fn
+  (lambda (head time category)
+    (alert head
+           :title (concat org-alert-notification-title " | " category)
+           :category org-alert-notification-category))
+  "Function that is called when notification without time should be created."
+  :group 'org-alert)
+
 (defcustom org-alert-timers
   `((:timer (t ,(* 10 60))
      :reload-buffers nil
@@ -148,7 +164,9 @@ NOTE:
 - PUSH: org-ql doesn't match only 1 timestamp in entry - add functionality
   to org-ql or use one of the forks with this functionality
 - 2026-03-21 BUG: (deadline auto) doesn't work properly - it affected events more than year away
-")
+"
+  :group 'org-alert
+  )
 
 (defun org-alert--read-subtree ()
   "Return the current subtree as a string.
@@ -237,11 +255,8 @@ Returns a list of:
       (cl-destructuring-bind (category head time cutoff) entry
         (if time
             (when (or (not cutoff) (org-alert--is-time-ok time cutoff))
-              (alert head
-                     :title (concat time " | " category)
-                     :category org-alert-notification-category))
-          (alert head :title (concat org-alert-notification-title " | " category)
-                 :category org-alert-notification-category))))))
+              (funcall (symbol-value 'org-alert-time-notification-fn) head time category))
+          (funcall (symbol-value 'org-alert-notification-fn) head time category))))))
 
 (defun org-alert-check--in-list (get-plist &optional reload-buffers)
   "Call `org-ql-query' with arguments from GET-PLIST."
